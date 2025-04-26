@@ -346,7 +346,7 @@ def process_image(image_path, output_dir, model_type="vit_b_lm", intensity_thres
     plt.axis("off")
     
     # Original segmentation visualization
-    plt.subplot(1, 4, 4)
+    plt.subplot(1, 4, 2)
     plt.imshow(segmentation_vis)
     plt.title(f"All Cells ({np.max(segmentation)})")
     plt.axis("off")
@@ -358,7 +358,7 @@ def process_image(image_path, output_dir, model_type="vit_b_lm", intensity_thres
     plt.axis("off")
     
     # Final filtered segmentation visualization
-    plt.subplot(1, 4, 2)
+    plt.subplot(1, 4, 4)
     plt.imshow(final_filtered_vis)
     plt.title(f"Final Filtered ({len(features_df)} cells)")
     plt.axis("off")
