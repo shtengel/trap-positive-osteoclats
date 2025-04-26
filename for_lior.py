@@ -178,7 +178,7 @@ def extract_shape_features(segmentation, original_image, min_area=200, plate_mas
     return pd.DataFrame(features), filtered_segmentation
 
 
-def visualize_segmentation(original_image, segmentation):
+def visualize_segmentation(original_image, segmentation, random_colors=None):
     """
     Create visualization of the segmentation without drawing the circle
     
@@ -191,9 +191,10 @@ def visualize_segmentation(original_image, segmentation):
     """
     # Generate random colors for visualization
     max_label = np.max(segmentation) if np.max(segmentation) > 0 else 1
-    random_colors = np.random.randint(0, 255, size=(max_label + 1, 3))
-    # Make background black
-    random_colors[0] = [0, 0, 0]
+    if random_colors is None:
+        random_colors = np.random.randint(0, 255, size=(max_label + 1, 3))
+        # Make background black
+        random_colors[0] = [0, 0, 0]
     
     # Create RGB segmentation visualization
     segmentation_vis = np.zeros((*segmentation.shape, 3), dtype=np.uint8)
@@ -202,7 +203,7 @@ def visualize_segmentation(original_image, segmentation):
         if np.any(mask):  # Only process if mask contains any True values
             segmentation_vis[mask] = random_colors[label]
     
-    return segmentation_vis
+    return segmentation_vis, random_colors
 
 
 def calculate_plate_coverage(features_df, plate_radius):
@@ -230,8 +231,42 @@ def calculate_plate_coverage(features_df, plate_radius):
     
     return coverage_percentage
 
+def add_numbers_to_image(visualize_segmentation_image, filtered_segmentation, features_df): 
+    """
+    Adds a numbering to each segmented cell
 
-def process_image(image_path, output_dir, model_type="vit_b_lm", intensity_percentile=None, min_area=200):
+    Args:
+        visualize_segmentation_image (_type_): _description_
+        filtered_segmentation (_type_): _description_
+        features_df (_type_): _description_
+    """
+    # Make a copy to annotate
+    vis_with_numbers = visualize_segmentation_image # visualize_segmentation_image.copy()
+    
+    # Get region properties for the filtered segmentation
+    props = regionprops(filtered_segmentation)
+
+    # Map label to centroid for quick lookup
+    label_to_centroid = {prop.label: prop.centroid for prop in props}
+
+    # Iterate through the features DataFrame in CSV order
+    for idx, row in features_df.iterrows():
+        cell_label = row['cell_id']
+        if cell_label in label_to_centroid:
+            y, x = map(int, label_to_centroid[cell_label])
+            # Write the CSV row number (starting from 1) at the centroid
+            cv2.putText(
+                vis_with_numbers,
+                str(int(cell_label)),         # CSV row number (1-based)
+                (x, y),               # (x, y) coordinates
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.0,                  # Font scale
+                (255, 255, 255),      # White text
+                3,                    # Thickness
+                cv2.LINE_AA
+            )
+
+def process_image(image_path, output_dir, model_type="vit_b_lm", intensity_threshold=None, min_area=200, numbered=False):
     """
     Process a single image with MicroSAM and save outputs
     
@@ -239,8 +274,9 @@ def process_image(image_path, output_dir, model_type="vit_b_lm", intensity_perce
         image_path: Path to the input image
         output_dir: Directory to save outputs
         model_type: MicroSAM model type
-        intensity_percentile: Optional percentile threshold for filtering cells by intensity
+        intensity_threshold: Optional threshold for filtering cells by intensity
         min_area: Minimum area threshold for cell filtering
+        numbered: Write cell number on each cell
     
     Returns:
         Dictionary with image statistics for final CSV
@@ -272,9 +308,9 @@ def process_image(image_path, output_dir, model_type="vit_b_lm", intensity_perce
     
     # Filter cells based on intensity percentile if specified
     filtered_segmentation = area_filtered_segmentation.copy()
-    if intensity_percentile is not None and not features_df.empty:
+    if intensity_threshold is not None and not features_df.empty:
         # Calculate intensity threshold based on percentile
-        intensity_threshold = 400 # 550 # np.percentile(features_df['mean_intensity'], intensity_percentile)
+        # intensity_threshold = 600 # np.percentile(features_df['mean_intensity'], intensity_threshold)
         
         # Filter out cells with intensity above the threshold
         high_intensity_cells = features_df[features_df['mean_intensity'] > intensity_threshold]['cell_id'].values
@@ -285,9 +321,12 @@ def process_image(image_path, output_dir, model_type="vit_b_lm", intensity_perce
         features_df = features_df[features_df['mean_intensity'] <= intensity_threshold].reset_index(drop=True)
     
     # Create visualizations (without drawing the circle)
-    segmentation_vis = visualize_segmentation(image, segmentation)
-    area_filtered_vis = visualize_segmentation(image, area_filtered_segmentation)
-    final_filtered_vis = visualize_segmentation(image, filtered_segmentation)
+    segmentation_vis, random_colors = visualize_segmentation(image, segmentation)
+    area_filtered_vis, _ = visualize_segmentation(image, area_filtered_segmentation, random_colors)
+    final_filtered_vis, _ = visualize_segmentation(image, filtered_segmentation, random_colors)
+    
+    if numbered:
+        add_numbers_to_image(final_filtered_vis, segmentation, features_df)
     
     # Create output paths
     os.makedirs(output_dir, exist_ok=True)
@@ -352,7 +391,7 @@ def process_image(image_path, output_dir, model_type="vit_b_lm", intensity_perce
     return image_stats
 
 
-def process_directory(input_dir, output_dir, model_type="vit_b_lm", intensity_percentile=None, min_area=200):
+def process_directory(input_dir, output_dir, model_type="vit_b_lm", intensity_threshold=None, min_area=200, numbered=False):
     """
     Process all images in a directory with MicroSAM with progress bar
     
@@ -360,7 +399,7 @@ def process_directory(input_dir, output_dir, model_type="vit_b_lm", intensity_pe
         input_dir: Directory containing input images
         output_dir: Directory to save outputs
         model_type: MicroSAM model type
-        intensity_percentile: Optional percentile threshold for filtering cells by intensity
+        intensity_threshold: Optional percentile threshold for filtering cells by intensity
         min_area: Minimum area threshold for cell filtering
     """
     # Create output directory
@@ -373,7 +412,7 @@ def process_directory(input_dir, output_dir, model_type="vit_b_lm", intensity_pe
         image_files.extend(glob.glob(os.path.join(input_dir, ext)))
     
     print(f"Found {len(image_files)} images in {input_dir}")
-    print(f"Intensity filtering: {'Enabled at {intensity_percentile}th percentile' if intensity_percentile is not None else 'Disabled'}")
+    print(f"Intensity filtering: {'Enabled at {intensity_threshold}th percentile' if intensity_threshold is not None else 'Disabled'}")
     print(f"Area filtering: Enabled (min area = {min_area} pixels²)")
     
     # Process each image and collect statistics with progress bar
@@ -381,7 +420,7 @@ def process_directory(input_dir, output_dir, model_type="vit_b_lm", intensity_pe
     
     for image_path in tqdm(image_files, desc="Processing images", unit="image"):
         print(f"\nProcessing {os.path.basename(image_path)}")
-        image_stats = process_image(image_path, output_dir, model_type, intensity_percentile, min_area)
+        image_stats = process_image(image_path, output_dir, model_type, intensity_threshold, min_area, numbered)
         if image_stats:
             all_image_stats.append(image_stats)
             print(f"  Cells detected: {image_stats['num_cells']}")
@@ -416,16 +455,16 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str, required=True, help="Output directory for results")
     parser.add_argument("--model", type=str, default="vit_b_lm", 
                        help="MicroSAM model type (vit_b_lm, vit_h_lm, etc.)")
-    parser.add_argument("--intensity-percentile", type=float, default=80,
-                       help="Filter cells by keeping only those below the specified percentile of mean intensity (e.g., 80 keeps the lowest 80%)")
+    parser.add_argument("--intensity-filter", type=float, default=600,
+                       help="Filter cells by keeping only those below the specified mean intensity (e.g., 600 filter cells with higher intensity(more white))")
     parser.add_argument("--min-area", type=int, default=500,
                        help="Minimum cell area in pixels² for filtering small objects")
+    parser.add_argument("--numbered", action="store_true", help="Show cells with numbers")
     
     args = parser.parse_args()
     
     start_time = time()
-    # process_directory(args.input, args.output, args.model, args.intensity_percentile, args.min_area)
-    process_directory(args.input, args.output, args.model, None, args.min_area)
+    process_directory(args.input, args.output, args.model, args.intensity_filter, args.min_area, args.numbered)
     end_time = time()
     
     # conda activate micro-sam
