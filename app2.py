@@ -50,9 +50,18 @@ if uploaded_file:
     with col1:
         st.subheader("Parameters")
         min_area = st.number_input("Min Area", min_value=0, value=500)
+        st.caption("Cells with area below %d will be dropped" % min_area)
         intensity_threshold = st.number_input("Intensity Filter", min_value=0.0, value=600.0)
+        st.caption("Cells with intensity filter above %d will be dropped" % intensity_threshold)
         numbered = st.checkbox("Numbered", value=True)
-        model_type = st.selectbox("Model Type", ["vit_b_lm"])
+        model_type = st.selectbox("Model Type", ["vit_l_lm", "vit_b_lm", "vit_t_lm"])
+        descriptions = {
+            "vit_l_lm": "ViT-L: Large model with highest accuracy, slower inference",
+            "vit_b_lm": "ViT-B: Base model with good balance between speed and accuracy",
+            "vit_t_lm": "ViT-T: Tiny model for fastest processing, lower accuracy"
+        }
+
+        st.caption(descriptions[model_type])
 
         if st.button("Process Image"):
             # Save uploaded file to a temporary path-like object
@@ -84,4 +93,4 @@ if uploaded_file:
 
 
 with st.expander("Show Results Table"):
-    st.dataframe(results_df)
+    st.dataframe(results_df.reset_index(drop=True))

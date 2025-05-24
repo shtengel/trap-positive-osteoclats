@@ -5,3 +5,7 @@
 *.jpeg
 *pyc
 joblib_cache/*
+build/
+dist/
+*.spec
+*.zip
