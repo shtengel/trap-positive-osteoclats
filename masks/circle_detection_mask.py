@@ -18,6 +18,10 @@ from micro_sam.instance_segmentation import (
     mask_data_to_segmentation
 )
 
+from joblib import Memory
+memory = Memory(location=os.path.join(os.getcwd(), "joblib_cache"), verbose=0)
+
+@memory.cache
 def optimize_circle_detection(image):
     """
     Optimized circle detection using OpenCV's HoughCircles

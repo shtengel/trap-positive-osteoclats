@@ -18,6 +18,10 @@ from micro_sam.instance_segmentation import (
     mask_data_to_segmentation
 )
 
+from joblib import Memory
+memory = Memory(location=os.path.join(os.getcwd(), "joblib_cache"), verbose=0)
+
+@memory.cache
 def run_automatic_instance_segmentation(image_input, model_type="vit_b_lm"):
     """Automatic Instance Segmentation by training an additional instance decoder in SAM.
 

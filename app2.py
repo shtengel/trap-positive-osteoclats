@@ -83,9 +83,5 @@ if uploaded_file:
         st.image(image, use_column_width=True)
 
 
-if st.button("Show Results Table"):
-    st.session_state["show_modal"] = True
-
-if st.session_state.get("show_modal", False):
-    with st.expander("Show Results Table"):
-        st.dataframe(results_df)
+with st.expander("Show Results Table"):
+    st.dataframe(results_df)
