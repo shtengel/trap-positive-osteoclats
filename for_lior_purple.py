@@ -1,7 +1,5 @@
-from filters.filter import filter_dataframe
 import os
 import glob
-import re
 import numpy as np
 import pandas as pd
 import imageio
@@ -9,6 +7,7 @@ import matplotlib.pyplot as plt
 from skimage.measure import label as connected_components
 from skimage.measure import regionprops
 from skimage.color import rgb2gray
+from skimage import exposure, color
 from tqdm import tqdm
 import cv2
 
@@ -19,6 +18,41 @@ from micro_sam.instance_segmentation import (
     mask_data_to_segmentation
 )
 
+def enhance_purple(image):
+    image_float = image.astype(np.float32)
+
+    R = image_float[:, :, 0]
+    G = image_float[:, :, 1]
+    B = image_float[:, :, 2]
+
+    # Step 1: Compute stronger purple score
+    purple_score = 0.75 * R + 0.75 * B - 1.5 * G
+    purple_score = np.clip(purple_score, 0, 255)
+
+    # Step 2: Normalize and exaggerate purple score
+    purple_score_norm = (purple_score - purple_score.min()) / (purple_score.max() - purple_score.min() + 1e-6)
+    purple_score_boosted = purple_score_norm ** 2.0  # adjust this exponent as needed
+
+    # Step 3: Create a purple-tinted boost image
+    purple_tint = np.stack([
+        np.full_like(R, 255),  # red channel full
+        np.full_like(G, 50),   # green low
+        np.full_like(B, 255)   # blue full
+    ], axis=2).astype(np.float32)
+
+    # Step 4: Blend original image and purple tint using boosted purple score
+    alpha = purple_score_boosted[:, :, np.newaxis]
+    enhanced_image = (1 - alpha) * image_float + alpha * purple_tint
+
+    enhanced_image = np.clip(enhanced_image, 0, 255).astype(np.uint8)
+
+    # Optional: Global contrast adjustment
+    enhanced_image = exposure.equalize_adapthist(enhanced_image, clip_limit=0.01)
+    enhanced_image = (enhanced_image * 255).astype(np.uint8)
+
+    return enhanced_image
+
+FIXED_COLOR = [123,43,250]
 
 def optimize_circle_detection(image):
     """
@@ -91,7 +125,14 @@ def optimize_circle_detection(image):
     return mask > 0, circle_info
 
 
-def run_automatic_instance_segmentation(image, model_type="vit_b_lm"):
+def save_float_image_as_png(image_float, filename):
+    """
+    Save a float image (0.0 to 1.0) as an 8-bit PNG.
+    """
+    image_uint8 = (np.clip(image_float, 0, 1) * 255).astype(np.uint8)
+    imageio.imwrite(filename, image_uint8)
+    
+def run_automatic_instance_segmentation(image, model_type="vit_b_lm", contrast_clip_limit=0.03):
     """Automatic Instance Segmentation by training an additional instance decoder in SAM.
 
     Args:
@@ -101,6 +142,23 @@ def run_automatic_instance_segmentation(image, model_type="vit_b_lm"):
     Returns:
         The instance segmentation.
     """
+    # Step 0: Contrast enhancement preprocessing
+    # if image.ndim == 3:  # RGB
+    #     image_gray = color.rgb2gray(image)
+    # else:
+    #     image_gray = image.astype(np.float32) / 255.0  # Normalize if grayscale
+        
+    # save_float_image_as_png(image_gray, "grayscaled.png")
+    
+    # # Apply Adaptive Histogram Equalization
+    # image_enhanced = exposure.equalize_adapthist(image_gray, clip_limit=contrast_clip_limit)
+    
+    # save_float_image_as_png(image_enhanced, "grayscaled_enhanced.png")
+
+    # Convert enhanced image back to 3D (RGB) if needed for SAM input
+    # image_input = np.stack([image_enhanced]*3, axis=-1).astype(np.float32)
+    image_input = enhance_purple(image)
+    
     # Step 1: Initialize the model attributes using the pretrained µsam model weights.
     predictor, decoder = get_predictor_and_decoder(
         model_type=model_type,
@@ -110,7 +168,7 @@ def run_automatic_instance_segmentation(image, model_type="vit_b_lm"):
     # Step 2: Computation of the image embeddings from the vision transformer-based image encoder.
     image_embeddings = util.precompute_image_embeddings(
         predictor=predictor,
-        input_=image,
+        input_=image_input,
         ndim=2,
     )
 
@@ -119,7 +177,7 @@ def run_automatic_instance_segmentation(image, model_type="vit_b_lm"):
 
     # Step 4: Initializing the precomputed image embeddings to perform faster automatic instance segmentation.
     ais.initialize(
-        image=image,
+        image=image_input,
         image_embeddings=image_embeddings,
     )
 
@@ -127,7 +185,7 @@ def run_automatic_instance_segmentation(image, model_type="vit_b_lm"):
     prediction = ais.generate()
     prediction = mask_data_to_segmentation(prediction, with_background=True)
 
-    return prediction
+    return prediction, image_input
 
 
 def extract_shape_features(segmentation, original_image, min_area=200, plate_mask=None):
@@ -154,13 +212,27 @@ def extract_shape_features(segmentation, original_image, min_area=200, plate_mas
     # Get region properties for each labeled region
     props = regionprops(filtered_segmentation, intensity_image=original_image)
     
+    small_cells_count = 0
+    all_cells_count = 0
     # Extract area, perimeter, and mean intensity for each cell
     features = []
     for prop in props:
         # Skip background (label 0)
         if prop.label > 0:
+            all_cells_count = all_cells_count + 1
             # Filter by area
             if prop.area >= min_area:
+                coords = prop.coords
+                # Extract the region's RGB pixel values
+                region_pixels = original_image[coords[:, 0], coords[:, 1], :]
+                red = region_pixels[:, 0]
+                green = region_pixels[:, 1]
+                blue = region_pixels[:, 2]
+                
+                # Define "purple" pixels: high R and B, low G (tunable thresholds)
+                purple_mask = (red > 100) & (blue > 100) & (green < 80)
+                purple_percent = 100.0 * np.sum(purple_mask) / prop.area
+                
                 # Handle different types of intensity values
                 if hasattr(prop.mean_intensity, '__iter__'):
                     mean_intensity = np.sum(prop.mean_intensity)
@@ -171,13 +243,15 @@ def extract_shape_features(segmentation, original_image, min_area=200, plate_mas
                     'cell_id': prop.label,
                     'area': prop.area,
                     'perimeter': prop.perimeter,
+                    'purple_percent': purple_percent,
                     'mean_intensity': mean_intensity
                 })
             else:
+                small_cells_count = small_cells_count + 1
                 # Remove small cells from segmentation
                 filtered_segmentation[filtered_segmentation == prop.label] = 0
     
-    return pd.DataFrame(features), filtered_segmentation
+    return pd.DataFrame(features), filtered_segmentation, all_cells_count, small_cells_count
 
 
 def visualize_segmentation(original_image, segmentation, random_colors=None):
@@ -203,7 +277,7 @@ def visualize_segmentation(original_image, segmentation, random_colors=None):
     for label in range(1, max_label + 1):
         mask = segmentation == label
         if np.any(mask):  # Only process if mask contains any True values
-            segmentation_vis[mask] = random_colors[label]
+            segmentation_vis[mask] = random_colors[label] #FIXED_COLOR
     
     return segmentation_vis, random_colors
 
@@ -298,36 +372,43 @@ def process_image(image_path, output_dir, model_type="vit_b_lm", intensity_thres
     
     # Run instance segmentation
     try:
-        segmentation = run_automatic_instance_segmentation(image, model_type=model_type)
+        segmentation, segmentation_image = run_automatic_instance_segmentation(image, model_type=model_type)
     except Exception as e:
         print(f"Error in segmentation for {filename}: {e}")
         return None
     
     # Extract shape features and apply area filtering
-    features_df, area_filtered_segmentation = extract_shape_features(
-        segmentation, image, min_area=min_area, plate_mask=plate_mask
+    features_df, area_filtered_segmentation, all_cells_count, small_cells_count = extract_shape_features(
+        segmentation, segmentation_image, min_area=min_area, plate_mask=plate_mask
     )
-    
-    features_df, area_filtered_segmentation = filter_dataframe(features_df, features_df['perimeter'] < 700, area_filtered_segmentation) 
     
     # Filter cells based on intensity percentile if specified
     filtered_segmentation = area_filtered_segmentation.copy()
+    # dead_cells_segmentation = area_filtered_segmentation.copy()
+    # dead_cells_features_df = features_df.copy()
+
     if intensity_threshold is not None and not features_df.empty:
         # Calculate intensity threshold based on percentile
         # intensity_threshold = 600 # np.percentile(features_df['mean_intensity'], intensity_threshold)
         
         # Filter out cells with intensity above the threshold
-        high_intensity_cells = features_df[features_df['mean_intensity'] > intensity_threshold]['cell_id'].values
+        high_intensity_cells = features_df[features_df['purple_percent'] < intensity_threshold]['cell_id'].values
         for cell_id in high_intensity_cells:
             filtered_segmentation[filtered_segmentation == cell_id] = 0
+            
+        # low_intensity_cells = features_df[features_df['mean_intensity'] < intensity_threshold]['cell_id'].values
+        # for cell_id in low_intensity_cells:
+        #     dead_cells_segmentation[dead_cells_segmentation == cell_id] = 0
         
         # Update features DataFrame to include only remaining cells
-        features_df = features_df[features_df['mean_intensity'] <= intensity_threshold].reset_index(drop=True)
+        features_df = features_df[features_df['purple_percent'] >= intensity_threshold].reset_index(drop=True)
+        # dead_cells_features_df = dead_cells_features_df[dead_cells_features_df['mean_intensity'] > intensity_threshold].reset_index(drop=True)
     
     # Create visualizations (without drawing the circle)
     segmentation_vis, random_colors = visualize_segmentation(image, segmentation)
     area_filtered_vis, _ = visualize_segmentation(image, area_filtered_segmentation, random_colors)
     final_filtered_vis, _ = visualize_segmentation(image, filtered_segmentation, random_colors)
+    # deadcells_filtered_vis, _ = visualize_segmentation(image, dead_cells_segmentation, random_colors)
     
     if numbered:
         add_numbers_to_image(final_filtered_vis, segmentation, features_df)
@@ -335,8 +416,8 @@ def process_image(image_path, output_dir, model_type="vit_b_lm", intensity_thres
     # Create output paths
     os.makedirs(output_dir, exist_ok=True)
     original_output_path = os.path.join(output_dir, f"{filename}_original.png")
-    segmentation_output_path = os.path.join(output_dir, f"{filename}_segmentation.png")
-    area_filtered_output_path = os.path.join(output_dir, f"{filename}_area_filtered.png")
+    # segmentation_output_path = os.path.join(output_dir, f"{filename}_segmentation.png")
+    # area_filtered_output_path = os.path.join(output_dir, f"{filename}_area_filtered.png")
     final_filtered_output_path = os.path.join(output_dir, f"{filename}_final_filtered.png")
     features_output_path = os.path.join(output_dir, f"{filename}_features.csv")
     
@@ -345,21 +426,27 @@ def process_image(image_path, output_dir, model_type="vit_b_lm", intensity_thres
     
     # Original image
     plt.subplot(1, 4, 1)
-    plt.imshow(image)
+    plt.imshow(segmentation_image)
     plt.title("Original Image")
     plt.axis("off")
     
     # Original segmentation visualization
-    plt.subplot(1, 4, 4)
+    plt.subplot(1, 4, 3)
     plt.imshow(segmentation_vis)
-    plt.title(f"All Cells ({np.max(segmentation)})")
+    plt.title(f"All Cells ({all_cells_count})")
     plt.axis("off")
     
     # Area-filtered segmentation visualization
-    plt.subplot(1, 4, 3)
+    plt.subplot(1, 4, 4)
     plt.imshow(area_filtered_vis)
-    plt.title(f"Area Filtered (>{min_area} px²)")
+    plt.title(f"Area Filtered ({small_cells_count}) (>{min_area} px²)")
     plt.axis("off")
+    
+    # Dead Cells segmentation visualization
+    # plt.subplot(1, 5, 2)
+    # plt.imshow(deadcells_filtered_vis)
+    # plt.title(f"Dead Cells ({len(dead_cells_features_df)})")
+    # plt.axis("off")
     
     # Final filtered segmentation visualization
     plt.subplot(1, 4, 2)
@@ -373,7 +460,7 @@ def process_image(image_path, output_dir, model_type="vit_b_lm", intensity_thres
     plt.close()
     
     # Save original image and segmentations separately
-    #imageio.imwrite(original_output_path, image)
+    imageio.imwrite(original_output_path, segmentation_image)
     #imageio.imwrite(segmentation_output_path, segmentation_vis)
     #imageio.imwrite(area_filtered_output_path, area_filtered_vis)
     
@@ -387,6 +474,7 @@ def process_image(image_path, output_dir, model_type="vit_b_lm", intensity_thres
     image_stats = {
         'image_name': filename,
         'num_cells': len(features_df),
+        # 'num_dead_cells': len(dead_cells_features_df),
         'mean_area': features_df['area'].mean() if not features_df.empty else 0,
         'mean_perimeter': features_df['perimeter'].mean() if not features_df.empty else 0,
         'plate_coverage_percent': plate_coverage
@@ -394,51 +482,6 @@ def process_image(image_path, output_dir, model_type="vit_b_lm", intensity_thres
     
     return image_stats
 
-
-def sort_images_by_group_and_column(images, groups=[("B", "C", "D"), ("E", "F", "G")]):
-    # Build group priority map: 'B' → (0, 0), 'C' → (0, 1), etc.
-    group_priority = {
-        letter: (group_idx, letter_idx)
-        for group_idx, group in enumerate(groups)
-        for letter_idx, letter in enumerate(group)
-    }
-    
-    def parse_image(obj):
-        name = obj["image_name"]
-        match = re.search(r'_([A-Z])(\d{2})f', name)
-        if match:
-            row_letter = match.group(1)
-            col_number = int(match.group(2))
-            return row_letter, col_number
-        return None, None  # Fallback for bad format
-
-    def sort_key(obj):
-        name = obj["image_name"]
-        match = re.search(r'_([A-Z])(\d{2})f', name)
-        if match:
-            row_letter = match.group(1)
-            col_number = int(match.group(2))
-            group_info = group_priority.get(row_letter, (float('inf'), float('inf')))
-            return (col_number, group_info)
-        return (float('inf'), (float('inf'), float('inf')))  # fallback for bad format
-
-    result = []
-    for group in groups:
-        # Filter images in current group
-        group_images = []
-        for image in images:
-            row_letter, col_number = parse_image(image)
-            if row_letter in group:
-                group_images.append(image)
-                
-        # Sort by col_number
-        group_images = sorted(group_images, key=sort_key)
-        
-        # Append sorted images
-        result = result + group_images 
-
-    return result
-    
 
 def process_directory(input_dir, output_dir, model_type="vit_b_lm", intensity_threshold=None, min_area=200, numbered=False):
     """
@@ -477,8 +520,7 @@ def process_directory(input_dir, output_dir, model_type="vit_b_lm", intensity_th
     
     # Create final statistics CSV
     if all_image_stats:
-        sorted_image_stats = sort_images_by_group_and_column(all_image_stats)
-        stats_df = pd.DataFrame(sorted_image_stats)
+        stats_df = pd.DataFrame(all_image_stats)
         final_csv_path = os.path.join(output_dir, "FINAL_STATS.csv")
         stats_df.to_csv(final_csv_path, index=False)
         
