@@ -1,93 +1,108 @@
 import os
-import glob
+import time
 import numpy as np
-import pandas as pd
-import imageio
-import matplotlib.pyplot as plt
-from skimage.measure import label as connected_components
-from skimage.measure import regionprops
-from skimage.color import rgb2gray
-from skimage import exposure, color
-from tqdm import tqdm
 import cv2
-
-from micro_sam import util
-from micro_sam.instance_segmentation import (
-    InstanceSegmentationWithDecoder,
-    get_predictor_and_decoder,
-    mask_data_to_segmentation
-)
-
+import matplotlib.pyplot as plt
 from joblib import Memory
+
 memory = Memory(location=os.path.join(os.getcwd(), "joblib_cache"), verbose=0)
 
 @memory.cache
-def optimize_circle_detection(image):
+def optimize_circle_detection(image, scale=0.25):
     """
-    Optimized circle detection using OpenCV's HoughCircles
+    Optimized circle detection using OpenCV's HoughCircles with image scaling.
     
     Args:
-        image: Input microscopy image
-        
+        image: Input image (RGB or grayscale)
+        scale: Scaling factor to downsample image for faster detection
+    
     Returns:
-        Mask of the plate region and plate info (center_x, center_y, radius)
+        mask (bool ndarray): Binary mask of detected plate
+        circle_info (tuple): (center_x, center_y, radius)
     """
-    # Convert to BGR if grayscale (OpenCV expects BGR for colored images)
+    # Convert to BGR for OpenCV
     if len(image.shape) == 2:
-        img_for_cv = cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_GRAY2BGR)
+        img_bgr = cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_GRAY2BGR)
+    elif image.shape[2] == 4:
+        img_bgr = cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
     else:
-        img_for_cv = image.copy()
-        
-        # If image has 4 channels (RGBA), convert to BGR
-        if img_for_cv.shape[2] == 4:
-            img_for_cv = cv2.cvtColor(img_for_cv, cv2.COLOR_RGBA2BGR)
+        img_bgr = image.copy()
     
-    # Convert to grayscale for circle detection
-    gray = cv2.cvtColor(img_for_cv, cv2.COLOR_BGR2GRAY)
+    # Grayscale
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     
-    # Create a copy for output
-    img_with_mask = img_for_cv.copy()
+    # Resize
+    gray_small = cv2.resize(gray, (0, 0), fx=scale, fy=scale)
     
-    # Apply Gaussian blur to reduce noise
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    # Blur
+    blurred = cv2.GaussianBlur(gray_small, (5, 5), 0)
     
-    # Try multiple parameter sets for HoughCircles to ensure detection
-    circle_params = [
-        # dp, minDist, param1, param2, minRadius, maxRadius
-        (1.2, min(gray.shape) // 2, 50, 30, min(gray.shape) // 4, min(gray.shape) // 2),
-        (1.5, min(gray.shape) // 2, 100, 40, min(gray.shape) // 4, min(gray.shape) // 2),
-        (1.2, min(gray.shape) // 2, 70, 20, min(gray.shape) // 4, min(gray.shape) // 2),
-    ]
+    # Parameters for scaled image
+    dp = 1.2
+    minDist = int(gray_small.shape[0] // 2)
+    param1 = 50
+    param2 = 30
+    minRadius = int(gray_small.shape[0] // 4)
+    maxRadius = int(gray_small.shape[0] // 2)
     
-    detected_circles = None
+    detected_circles = cv2.HoughCircles(
+        blurred, cv2.HOUGH_GRADIENT, dp=dp, minDist=minDist,
+        param1=param1, param2=param2,
+        minRadius=minRadius, maxRadius=maxRadius
+    )
     
-    for dp, minDist, param1, param2, minRadius, maxRadius in circle_params:
-        try:
-            circles = cv2.HoughCircles(
-                blurred, cv2.HOUGH_GRADIENT, dp=dp, minDist=minDist,
-                param1=param1, param2=param2, minRadius=minRadius, maxRadius=maxRadius
-            )
-            
-            if circles is not None and len(circles[0]) > 0:
-                # Take the circle with the highest prominence (first one returned by HoughCircles)
-                detected_circles = circles[0][0]
-                break
-        except Exception as e:
-            print(f"Circle detection attempt failed with parameters {dp}, {minDist}, {param1}, {param2}: {e}")
-    
-    # If no circles detected, use fallback to estimate the circle
-    if detected_circles is None:
-        print("Warning: No circle detected, using estimated circle in center of image.")
+    if detected_circles is not None and len(detected_circles[0]) > 0:
+        x, y, r = detected_circles[0][0] / scale  # rescale to original size
+        circle_info = tuple(np.round([x, y, r]).astype(int))
+    else:
+        print("Warning: No circle detected. Using fallback.")
         h, w = gray.shape
-        center_x, center_y = w // 2, h // 2
-        radius = min(w, h) // 2 - 20  # Slightly smaller than half the minimum dimension
-        circle_info = (center_x, center_y, radius)
-    else:
-        x, y, r = np.round(detected_circles).astype(int)
-        circle_info = (x, y, r)
+        circle_info = (w // 2, h // 2, min(w, h) // 2 - 20)
     
-    # Create a mask for the detected circle
+    # Create binary mask
     mask = np.zeros_like(gray, dtype=np.uint8)
     cv2.circle(mask, (circle_info[0], circle_info[1]), circle_info[2], 255, thickness=-1)
     
     return mask > 0, circle_info
+
+
+def visualize_circle_detection_from_path(image_path, scale=0.25):
+    """
+    Load image, detect plate circle, and visualize result with total timing.
+    
+    Args:
+        image_path: Path to image file
+        scale: Downscaling factor for detection (e.g., 1.0 = no scaling)
+    """
+    start_time = time.perf_counter()
+    
+    image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+    if image is None:
+        raise ValueError(f"Could not load image from path: {image_path}")
+    
+    # Convert to RGB for display
+    if len(image.shape) == 2:
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+    elif image.shape[2] == 4:
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGRA2RGB)
+    else:
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    
+    # Detect circle
+    mask, (x, y, r) = optimize_circle_detection(image, scale=scale)
+    
+    # Plot result
+    fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+    ax.imshow(image_rgb)
+    circle = plt.Circle((x, y), r, color='red', linewidth=2, fill=False)
+    ax.add_patch(circle)
+    ax.set_title(f"Detected Plate Circle (scale={scale})")
+    ax.axis('off')
+    plt.show()
+
+    elapsed = time.perf_counter() - start_time
+    print(f"[INFO] Total time (load + detect + display): {elapsed:.2f} seconds with scale={scale}")
+
+
+# visualize_circle_detection_from_path("scan_Plate_TM_p00_0_B05f00d0.TIF", scale=0.25)  # Fast
+# visualize_circle_detection_from_path("your_image.png", scale=1.0)   # Full resolution
