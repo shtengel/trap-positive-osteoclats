@@ -105,9 +105,11 @@ results_df = pd.DataFrame(columns=["Cell ID", "Area", "Confidence"])
 # --- Sidebar Parameters ---
 st.sidebar.header("Processing Parameters")
 min_area = st.sidebar.number_input("Min Area", min_value=0, value=500)
+st.sidebar.caption("Filter out small cells by pixel size")
 intensity_threshold = st.sidebar.number_input("Intensity Filter", min_value=0.0, value=600.0)
+st.sidebar.caption("Filter out dead cells by how 'White' they are, higher values -> more dead cells")
 numbered = st.sidebar.checkbox("Numbered Labels", value=True)
-model_type = st.sidebar.selectbox("Model Type", ["vit_t_lm", "vit_b_lm", "vit_l_lm"])
+model_type = st.sidebar.selectbox("Model Type", ["vit_b_lm", "vit_t_lm", "vit_l_lm"])
 model_desc = {
     "vit_t_lm": "ViT-T: Tiny model for fastest processing, lower accuracy",
     "vit_b_lm": "ViT-B: Base model with good balance between speed and accuracy",
