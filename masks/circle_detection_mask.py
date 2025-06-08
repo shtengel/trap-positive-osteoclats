@@ -8,7 +8,7 @@ from joblib import Memory
 memory = Memory(location=os.path.join(os.getcwd(), "joblib_cache"), verbose=0)
 
 # @memory.cache
-def optimize_circle_detection(image, scale=0.25):
+def optimize_circle_detection(image, scale=0.15):
     """
     Optimized circle detection using OpenCV's HoughCircles with image scaling.
     
@@ -91,6 +91,9 @@ def visualize_circle_detection_from_path(image_path, scale=0.25):
     # Detect circle
     mask, (x, y, r) = optimize_circle_detection(image, scale=scale)
     
+    elapsed = time.perf_counter() - start_time
+    print(f"[INFO] Total time (load + detect + display): {elapsed:.2f} seconds with scale={scale}")
+
     # Plot result
     fig, ax = plt.subplots(1, 1, figsize=(8, 8))
     ax.imshow(image_rgb)
@@ -100,9 +103,8 @@ def visualize_circle_detection_from_path(image_path, scale=0.25):
     ax.axis('off')
     plt.show()
 
-    elapsed = time.perf_counter() - start_time
-    print(f"[INFO] Total time (load + detect + display): {elapsed:.2f} seconds with scale={scale}")
+    
 
 
 # visualize_circle_detection_from_path("scan_Plate_TM_p00_0_B05f00d0.TIF", scale=0.25)  # Fast
-# visualize_circle_detection_from_path("your_image.png", scale=1.0)   # Full resolution
+# visualize_circle_detection_from_path('/Volumes/Extreme SSD/BMDM-INVITRO2/31.5 NO CHANGE M/scan.2025-06-04-08-30-47/scan_Plate_TM_p00_0_B09f00d0.TIF', scale=0.15)   # Full resolution
