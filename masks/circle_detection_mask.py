@@ -7,7 +7,7 @@ from joblib import Memory
 
 memory = Memory(location=os.path.join(os.getcwd(), "joblib_cache"), verbose=0)
 
-@memory.cache
+# @memory.cache
 def optimize_circle_detection(image, scale=0.25):
     """
     Optimized circle detection using OpenCV's HoughCircles with image scaling.
