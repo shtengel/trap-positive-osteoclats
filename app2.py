@@ -97,7 +97,7 @@ def process_uploaded_files(uploaded_files, model_type="vit_b_lm", intensity_thre
 
 # --- Streamlit layout ---
 st.set_page_config(layout="wide")
-st.title("Image Processing App")
+st.title("TRAP stained Osteoclasts Analyzer")
 
 allowed_extensions = ["png", "tiff", "tif", "jpeg", "jpg"]
 results_df = pd.DataFrame(columns=["Cell ID", "Area", "Confidence"])
@@ -105,10 +105,11 @@ results_df = pd.DataFrame(columns=["Cell ID", "Area", "Confidence"])
 # --- Sidebar Parameters ---
 st.sidebar.header("Processing Parameters")
 min_area = st.sidebar.number_input("Min Area", min_value=0, value=500)
-st.sidebar.caption("Filter out small cells by pixel size")
+st.sidebar.caption("Filter out cells by pixel size — any cell with an area **lower** than this value will be dropped.")
 intensity_threshold = st.sidebar.number_input("Intensity Filter", min_value=0.0, value=600.0)
-st.sidebar.caption("Filter out dead cells by how 'White' they are, higher values -> more dead cells")
+st.sidebar.caption("Cells with intensity **higher** than this value are considered dead (too bright/white) and dropped. Increase the value to filter out more cells, decrease it to keep more.")
 numbered = st.sidebar.checkbox("Numbered Labels", value=True)
+st.sidebar.caption("Overlay numeric IDs on each detected cell to match them to the results table.")
 model_type = st.sidebar.selectbox("Model Type", ["vit_b_lm", "vit_t_lm", "vit_l_lm"])
 model_desc = {
     "vit_t_lm": "ViT-T: Tiny model for fastest processing, lower accuracy",
@@ -118,7 +119,102 @@ model_desc = {
 st.sidebar.caption(model_desc[model_type])
 
 # --- Tabs ---
-tab1, tab2 = st.tabs(["🖼 Single Image", "📂 Batch Processing"])
+tab1, tab2, tab3 = st.tabs(["🖼 Single Image", "📂 Batch Processing", "📖 Documentation"])
+
+# --- Tab 3: Documentation ---
+with tab3:
+    st.subheader("Documentation & Guides")
+
+    ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
+
+    def show_image(filename, caption=None, width=None):
+        """Render an image from the assets/ folder if it exists, else show a notice."""
+        path = os.path.join(ASSETS_DIR, filename)
+        if os.path.isfile(path):
+            st.image(path, caption=caption, width=width)
+        else:
+            st.info(f"📷 Add screenshot at `assets/{filename}` to display here.")
+
+    section = st.radio(
+        "Jump to section:",
+        ["Overview", "Parameters Guide", "Single Image Tutorial", "Batch Processing Tutorial"],
+        horizontal=True,
+    )
+
+    if section == "Overview":
+        st.markdown("""
+        ### What this tool does
+        This app automatically detects and analyzes **TRAP-stained osteoclasts** in microscopy images.
+
+        TRAP (Tartrate-Resistant Acid Phosphatase) staining highlights multinucleated
+        osteoclasts — the bone-resorbing cells. This tool:
+
+        - Segments individual osteoclasts from your images using a vision foundation model.
+        - Measures each cell's **area** and **confidence score**.
+        - Lets you filter out small artifacts or over-stained (dead) cells.
+        - Exports per-cell statistics and annotated overlay images.
+
+        **Intended users:** researchers in bone biology, dental research, and related fields
+        who need consistent, quantitative cell measurements across many images.
+        """)
+        show_image("overview_example.png", caption="Example: detected osteoclasts overlaid on a TRAP-stained image.")
+
+    elif section == "Parameters Guide":
+        st.markdown("""
+        ### Parameters Guide
+        All parameters live in the left sidebar.
+
+        #### Min Area
+        Filter cells by pixel size. Any cell with an area **lower** than this value is dropped.
+        Use a higher value to remove small fragments; use a lower value to keep small cells.
+
+        #### Intensity Filter
+        Cells with mean intensity **higher** than this value are considered over-stained (dead)
+        and dropped. Increase to filter out more, decrease to keep more.
+
+        #### Numbered Labels
+        Overlay numeric IDs on each detected cell so you can match them to the results table.
+
+        #### Model Type
+        Choose between three SAM-based backbones:
+        - **ViT-T (Tiny)** — fastest, lowest accuracy.
+        - **ViT-B (Base)** — balanced speed and accuracy. *Default.*
+        - **ViT-L (Large)** — highest accuracy, slower inference.
+
+        For more details on choosing a model, see the
+        [micro-SAM model guide](https://computational-cell-analytics.github.io/micro-sam/micro_sam.html#choosing-a-model).
+        """)
+        show_image("parameters_sidebar.png", caption="The parameter sidebar.", width=400)
+
+    elif section == "Single Image Tutorial":
+        st.markdown("""
+        ### Single Image Tutorial
+
+        1. Open the **🖼 Single Image** tab.
+        2. Click *Choose a single image file* and select a `.png`, `.tif`, or `.jpg`.
+        3. Adjust the parameters in the sidebar if needed.
+        4. Click **Process Image**.
+        5. Review the side-by-side comparison: your original image and the annotated overlay.
+        6. Expand **📊 Show Results Table** to see per-cell measurements.
+        """)
+        show_image("tutorial_single_upload.png", caption="Step 2: Upload a single image.")
+        show_image("tutorial_single_output.png", caption="Step 5: Original vs. processed output.")
+
+    elif section == "Batch Processing Tutorial":
+        st.markdown("""
+        ### Batch Processing Tutorial
+
+        1. Open the **📂 Batch Processing** tab.
+        2. Click *Upload multiple image files* and select many files at once (Ctrl/⌘-click).
+        3. Click **Process Uploaded Batch** — a progress bar will update as each image runs.
+        4. When complete, click **📦 Download Results (ZIP)**.
+        5. The ZIP contains annotated overlays, mask images, and a `FINAL_STATS.csv` with
+           per-cell measurements from every image.
+        6. Expand **📊 Show Summary Table** to preview the CSV inside the app.
+        """)
+        show_image("tutorial_batch_upload.png", caption="Step 2: Select multiple files.")
+        show_image("tutorial_batch_results.png", caption="Step 4: Download the results ZIP.")
+
 
 # --- Tab 1: Single Image ---
 with tab1:
