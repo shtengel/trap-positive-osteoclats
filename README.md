@@ -69,6 +69,23 @@ streamlit run app2.py
 
 ---
 
+## Recommended workflow
+
+Before running a full batch, **calibrate the parameters on a few representative
+images** using the Single Image tab:
+
+1. Start with the most permissive values: **`Min Area = 0`** and
+   **`Intensity Filter = max`** (so nothing is dropped).
+2. Process a handful of representative images.
+3. Manually inspect the annotated overlays — note the smallest *true*
+   osteoclasts and the brightest *dead/over-stained* cells.
+4. Set **`Min Area`** just below the smallest true cell you want to keep.
+5. Set **`Intensity Filter`** just above the brightest dead cell you want to drop.
+6. Re-run the single-image cases to confirm the filters look correct.
+7. Only then switch to **📂 Batch Processing** with the chosen values.
+
+---
+
 ## Parameters
 
 All parameters live in the left sidebar.

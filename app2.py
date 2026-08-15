@@ -137,7 +137,7 @@ with tab3:
 
     section = st.radio(
         "Jump to section:",
-        ["Overview", "Parameters Guide", "Single Image Tutorial", "Batch Processing Tutorial"],
+        ["Overview", "Recommended Workflow", "Parameters Guide", "Single Image Tutorial", "Batch Processing Tutorial"],
         horizontal=True,
     )
 
@@ -158,6 +158,25 @@ with tab3:
         who need consistent, quantitative cell measurements across many images.
         """)
         show_image("overview_example.png", caption="Example: detected osteoclasts overlaid on a TRAP-stained image.")
+
+    elif section == "Recommended Workflow":
+        st.markdown("""
+        ### Recommended Workflow: calibrate before batching
+
+        Before running a full batch, **calibrate the parameters on a few
+        representative images** using the 🖼 Single Image tab:
+
+        1. Start with the most permissive values:
+           **`Min Area = 0`** and **`Intensity Filter = max`** — so nothing is dropped.
+        2. Process a handful of representative images.
+        3. Manually inspect the annotated overlays. Note the smallest *true*
+           osteoclasts and the brightest *dead / over-stained* cells.
+        4. Set **`Min Area`** just **below** the smallest true cell you want to keep.
+        5. Set **`Intensity Filter`** just **above** the brightest dead cell you want to drop.
+        6. Re-run the same single images to confirm the filters look correct.
+        7. Only then switch to 📂 Batch Processing with the chosen values.
+        """)
+        show_image("workflow_calibration.png", caption="Calibrate filters on single images before running a batch.")
 
     elif section == "Parameters Guide":
         st.markdown("""
