@@ -35,11 +35,17 @@ def sort_images_by_group_and_column(images, groups=[("B", "C", "D"), ("E", "F", 
             row_letter, col_number = parse_image(image)
             if row_letter in group:
                 group_images.append(image)
-                
+
         # Sort by col_number
         group_images = sorted(group_images, key=sort_key)
-        
+
         # Append sorted images
-        result = result + group_images 
+        result = result + group_images
+
+    # Append any files whose name didn't match the expected pattern
+    # (e.g. `_[A-Z]\d{2}f`). Sorted alphabetically by name for stability.
+    matched_names = {img["image_name"] for img in result}
+    unmatched = [img for img in images if img["image_name"] not in matched_names]
+    result = result + sorted(unmatched, key=lambda img: img["image_name"])
 
     return result

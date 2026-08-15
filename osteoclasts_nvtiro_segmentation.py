@@ -149,16 +149,38 @@ def process_image(image_path, output_dir, model_type="vit_b_lm", intensity_thres
             image = imageio.imread(image_stream)
         except Exception as e:
             print(f"Error reading {filename}: {e}")
-            return None
-    
+            return (
+                None,
+                {
+                    'image_name': filename,
+                    'num_cells': 0,
+                    'mean_area': 0,
+                    'mean_perimeter': 0,
+                    'plate_coverage_percent': 0.0,
+                },
+                [],
+                pd.DataFrame(),
+            )
+
     # image = enhance_purple(image)
-    
+
     # Run instance segmentation
     try:
         segmentation, segmentation_image = run_automatic_instance_segmentation(image, model_type=model_type)
     except Exception as e:
         print(f"Error in segmentation for {filename}: {e}")
-        return None
+        return (
+            None,
+            {
+                'image_name': filename,
+                'num_cells': 0,
+                'mean_area': 0,
+                'mean_perimeter': 0,
+                'plate_coverage_percent': 0.0,
+            },
+            [],
+            pd.DataFrame(),
+        )
     
     # Detect plate region using optimized circle detection
     plate_mask, plate_info = optimize_circle_detection(image)
