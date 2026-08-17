@@ -82,11 +82,14 @@ def process_uploaded_files(uploaded_files, model_type="vit_b_lm", intensity_thre
 
             zip_path = os.path.join(tmp_input_dir, "results.zip")
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+                # Add FINAL_STATS.csv first so it appears at the top of the archive
+                zipf.write(final_csv_path, "FINAL_STATS.csv")
                 for root, _, files in os.walk(output_dir):
                     for file in files:
                         file_path = os.path.join(root, file)
                         arcname = os.path.relpath(file_path, output_dir)
-                        zipf.write(file_path, arcname)
+                        if arcname != "FINAL_STATS.csv":
+                            zipf.write(file_path, arcname)
 
             final_zip = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
             shutil.copy(zip_path, final_zip.name)
@@ -107,7 +110,7 @@ st.sidebar.header("Processing Parameters")
 min_area = st.sidebar.number_input("Min Area", min_value=0, value=500)
 st.sidebar.caption("Filter out cells by pixel size — any cell with an area **lower** than this value will be dropped.")
 intensity_threshold = st.sidebar.number_input("Intensity Filter", min_value=0.0, value=600.0)
-st.sidebar.caption("Cells with intensity **higher** than this value are considered dead (too bright/white) and dropped. Increase the value to filter out more cells, decrease it to keep more.")
+st.sidebar.caption("Cells with intensity **higher** than this value are considered dead (too bright/white) and dropped. Decrease the value to filter out more cells, increase it to keep more.")
 numbered = st.sidebar.checkbox("Numbered Labels", value=True)
 st.sidebar.caption("Overlay numeric IDs on each detected cell to match them to the results table.")
 model_type = st.sidebar.selectbox("Model Type", ["vit_b_lm", "vit_t_lm", "vit_l_lm"])
@@ -189,7 +192,7 @@ with tab3:
 
         #### Intensity Filter
         Cells with mean intensity **higher** than this value are considered over-stained (dead)
-        and dropped. Increase to filter out more, decrease to keep more.
+        and dropped. Decrease to filter out more, increase to keep more.
 
         #### Numbered Labels
         Overlay numeric IDs on each detected cell so you can match them to the results table.
@@ -227,9 +230,23 @@ with tab3:
         2. Click *Upload multiple image files* and select many files at once (Ctrl/⌘-click).
         3. Click **Process Uploaded Batch** — a progress bar will update as each image runs.
         4. When complete, click **📦 Download Results (ZIP)**.
-        5. The ZIP contains annotated overlays, mask images, and a `FINAL_STATS.csv` with
-           per-cell measurements from every image.
+        5. The ZIP contains annotated overlays, mask images, and a `FINAL_STATS.csv`
+           summary table. The CSV is the first file in the archive for easy access.
         6. Expand **📊 Show Summary Table** to preview the CSV inside the app.
+
+        #### What is in `FINAL_STATS.csv`?
+        - `image_name`: name of the input image.
+        - `num_cells`: number of cells that passed the filters.
+        - `mean_area`: average cell area in pixels.
+        - `mean_perimeter`: average cell perimeter in pixels.
+        - `plate_coverage_percent`: estimated area covered by detected cells.
+
+        Rows are ordered by plate group/column for `_B01f`-style filenames, and naturally
+        (1, 2, 3, ..., 10) for plain numbered filenames.
+
+        > **Note:** Segmentation results may vary slightly between different computers
+        due to hardware differences, floating-point behavior, and dependency versions.
+        Always verify outputs on your own system.
         """)
         show_image("tutorial_batch_upload.png", caption="Step 2: Select multiple files.")
         show_image("tutorial_batch_results.png", caption="Step 4: Download the results ZIP.")
@@ -275,7 +292,8 @@ with tab1:
             display_image_batch(images=processed_img_array, titles=titles)
 
         with st.expander("📊 Show Results Table"):
-            st.dataframe(features_df.reset_index(drop=True), hide_index=True)
+            display_df = features_df.drop(columns=["plate_coverage_percent"], errors="ignore")
+            st.dataframe(display_df.reset_index(drop=True), hide_index=True)
         
 # --- Tab 2: Batch Processing ---
 with tab2:

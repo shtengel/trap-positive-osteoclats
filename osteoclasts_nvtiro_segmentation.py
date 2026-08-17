@@ -20,8 +20,7 @@ from micro_sam.instance_segmentation import (
 
 from segmentation.msam_segmentation import run_automatic_instance_segmentation
 from preprocess.features import extract_shape_features
-from preprocess.enhance_purple import enhance_purple
-from masks.circle_detection_mask import optimize_circle_detection 
+from masks.circle_detection_mask import optimize_circle_detection
 from filters.filter import filter_dataframe
 
 FIXED_COLOR = [123,43,250]
@@ -162,8 +161,6 @@ def process_image(image_path, output_dir, model_type="vit_b_lm", intensity_thres
                 pd.DataFrame(),
             )
 
-    # image = enhance_purple(image)
-
     # Run instance segmentation
     try:
         segmentation, segmentation_image = run_automatic_instance_segmentation(image, model_type=model_type)
@@ -192,7 +189,7 @@ def process_image(image_path, output_dir, model_type="vit_b_lm", intensity_thres
     
     all_cells_count = len(features_df)
     
-    # Filter cells based on intensity percentile if specified
+    # Filter cells based on intensity threshold if specified
     # filtered_segmentation = plate_segmentation.copy()
     # dead_cells_segmentation = plate_segmentation.copy()
     # dead_cells_features_df = features_df.copy()
@@ -204,9 +201,6 @@ def process_image(image_path, output_dir, model_type="vit_b_lm", intensity_thres
     features_df, area_filtered_segmentation = filter_dataframe(features_df, features_df['perimeter'] < 700, area_filtered_segmentation) 
     
     area_filtered_cells_count = len(features_df)
-    
-    # purple percent filter
-    # features_df, intensity_filtered_segmentation = filter_dataframe(features_df, features_df['purple_percent'] > intensity_threshold, area_filtered_segmentation)
     
     # mean intensity filter
     features_df, intensity_filtered_segmentation = filter_dataframe(features_df, features_df['mean_intensity'] < intensity_threshold, area_filtered_segmentation)
@@ -296,7 +290,7 @@ def process_directory(input_dir, output_dir, model_type="vit_b_lm", intensity_th
         input_dir: Directory containing input images
         output_dir: Directory to save outputs
         model_type: MicroSAM model type
-        intensity_threshold: Optional percentile threshold for filtering cells by intensity
+        intensity_threshold: Optional intensity ceiling; cells with mean intensity >= this value are dropped
         min_area: Minimum area threshold for cell filtering
     """
     # Create output directory
@@ -309,7 +303,7 @@ def process_directory(input_dir, output_dir, model_type="vit_b_lm", intensity_th
         image_files.extend(glob.glob(os.path.join(input_dir, ext)))
     
     print(f"Found {len(image_files)} images in {input_dir}")
-    print(f"Intensity filtering: {'Enabled at {intensity_threshold}th percentile' if intensity_threshold is not None else 'Disabled'}")
+    print(f"Intensity filtering: {'Enabled at threshold {intensity_threshold}' if intensity_threshold is not None else 'Disabled'}")
     print(f"Area filtering: Enabled (min area = {min_area} pixels²)")
     
     # Process each image and collect statistics with progress bar

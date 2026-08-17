@@ -65,6 +65,20 @@ streamlit run app2.py
 3. Click **Process Uploaded Batch** — a progress bar tracks each image.
 4. Download the **📦 results ZIP** containing annotated overlays, masks, and `FINAL_STATS.csv`.
 
+The `FINAL_STATS.csv` file is the first item in the ZIP archive and contains one summary row per image:
+
+| Column | Description |
+|---|---|
+| `image_name` | Name of the input image file. |
+| `num_cells` | Total number of cells that passed all filters. |
+| `mean_area` | Average cell area among detected cells (pixels). |
+| `mean_perimeter` | Average cell perimeter among detected cells (pixels). |
+| `plate_coverage_percent` | Estimated percentage of the plate/culture area covered by cells. |
+
+Rows are ordered first by plate group/column for filenames matching the `_B01f` style, then numerically for plain numbered filenames (`1, 2, 3, ..., 10`) rather than alphabetically (`1, 10, 2, 3`).
+
+> **Note:** Segmentation results may vary slightly between different computers due to differences in hardware, floating-point behavior, and dependency versions. Always verify outputs on your own system before drawing conclusions.
+
 ![Batch results](assets/tutorial_batch_results.png)
 
 ---
@@ -93,7 +107,7 @@ All parameters live in the left sidebar.
 | Parameter | Description |
 |---|---|
 | **Min Area** | Drop any cell whose area is **lower** than this pixel count. Increase to remove fragments, decrease to keep small cells. |
-| **Intensity Filter** | Drop any cell whose mean intensity is **higher** than this value (treated as over-stained / dead). Increase to filter more aggressively. |
+| **Intensity Filter** | Drop any cell whose mean intensity is **higher** than this value (treated as over-stained / dead). Decrease to filter more aggressively. |
 | **Numbered Labels** | Overlay numeric IDs on each detected cell so they can be matched to the results table. |
 | **Model Type** | SAM backbone to use — see the [micro-SAM model guide](https://computational-cell-analytics.github.io/micro-sam/micro_sam.html#choosing-a-model). |
 
