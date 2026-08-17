@@ -140,7 +140,7 @@ with tab3:
 
     section = st.radio(
         "Jump to section:",
-        ["Overview", "Recommended Workflow", "Parameters Guide", "Single Image Tutorial", "Batch Processing Tutorial"],
+        ["Overview", "Recommended Workflow", "Parameters Guide", "Single Image Tutorial", "Batch Processing Tutorial", "Output Files"],
         horizontal=True,
     )
 
@@ -179,7 +179,21 @@ with tab3:
         6. Re-run the same single images to confirm the filters look correct.
         7. Only then switch to 📂 Batch Processing with the chosen values.
         """)
-        show_image("workflow_calibration.png", caption="Calibrate filters on single images before running a batch.")
+
+        st.markdown("""
+        #### Calibrating Min Area
+        Cells smaller than this value are discarded as fragments or noise. Choose a
+        threshold just below the smallest true osteoclast you want to keep.
+        """)
+        show_image("workflow_calibration_area.png", caption="Calibrate Min Area: keep true cells while removing small fragments.")
+
+        st.markdown("""
+        #### Calibrating Intensity Filter
+        Cells with mean intensity **higher** than this value are treated as over-stained
+        (dead) and removed. Choose a threshold just above the brightest dead cell you
+        want to exclude.
+        """)
+        show_image("workflow_calibration_intensity.png", caption="Calibrate Intensity Filter: remove bright, over-stained / dead cells.")
 
     elif section == "Parameters Guide":
         st.markdown("""
@@ -251,6 +265,58 @@ with tab3:
         show_image("tutorial_batch_upload.png", caption="Step 2: Select multiple files.")
         show_image("tutorial_batch_results.png", caption="Step 4: Download the results ZIP.")
 
+    elif section == "Output Files":
+        st.markdown("""
+        ### Output files
+
+        Every processed image generates the following files in the results folder (and in the batch ZIP):
+
+        - `<image>_original.png` — the input image.
+        - `<image>_features.csv` — per-cell measurements.
+        - `<image>_final_filtered.png` — four-panel debug visualization.
+
+        Batches also include `FINAL_STATS.csv`, which is placed first in the ZIP for easy access.
+
+        #### Per-cell features (`<image>_features.csv`)
+
+        Each row is one cell that passed the filters.
+
+        | Column | Description |
+        |---|---|
+        | `cell_id` | Numeric label of the cell. |
+        | `area` | Cell area in pixels. |
+        | `perimeter` | Cell perimeter in pixels. |
+        | `mean_intensity` | Average intensity inside the cell (higher = brighter / over-stained). |
+        """)
+        show_image("features.png", caption="Example per-cell features CSV opened in a spreadsheet.")
+
+        st.markdown("""
+        #### Batch summary (`FINAL_STATS.csv`)
+
+        One summary row per image.
+
+        | Column | Description |
+        |---|---|
+        | `image_name` | Input image file name. |
+        | `num_cells` | Cells that passed all filters. |
+        | `mean_area` | Mean cell area in pixels. |
+        | `mean_perimeter` | Mean cell perimeter in pixels. |
+        | `plate_coverage_percent` | Estimated plate area covered by cells. |
+        """)
+        show_image("final_stats.png", caption="Example FINAL_STATS.csv opened in a spreadsheet.")
+
+        st.markdown("""
+        #### Debug visualization (`<image>_final_filtered.png`)
+
+        The four-panel figure shows:
+
+        1. **Original Image** — the uploaded TRAP-stained plate.
+        2. **Final Filtered** — cells kept after all filters (numbered if *Numbered Labels* is enabled).
+        3. **All Cells** — every cell detected by SAM before filtering.
+        4. **Area Filtered** — cells remaining after removing fragments smaller than *Min Area*.
+        """)
+        show_image("31_final_filtered.png", caption="Example debug visualization for a single image.")
+
 
 # --- Tab 1: Single Image ---
 with tab1:
@@ -286,9 +352,8 @@ with tab1:
         st.subheader("Comparison")
         col1, col2 = st.columns(2)
         with col1:
-            st.image(uploaded_image_preview, caption="Uploaded Image", use_column_width=True)
+            st.image(uploaded_image_preview, caption="Uploaded Image", use_container_width=True)
         with col2:
-            st.subheader("Processed Image")
             display_image_batch(images=processed_img_array, titles=titles)
 
         with st.expander("📊 Show Results Table"):

@@ -48,22 +48,21 @@ streamlit run app2.py
 ## Quick start
 
 ### 1. Process a single image
-![Single image upload](assets/tutorial_single_upload.png)
-
 1. Open the **🖼 Single Image** tab.
 2. Upload a `.png`, `.tif`, or `.jpg`.
 3. Adjust the sidebar parameters (see [Parameters](#parameters)).
 4. Click **Process Image** and review the side-by-side comparison.
 
+![Single image upload](assets/tutorial_single_upload.png)
 ![Single image output](assets/tutorial_single_output.png)
 
 ### 2. Process a batch
-![Batch upload](assets/tutorial_batch_upload.png)
-
 1. Open the **📂 Batch Processing** tab.
 2. Select multiple files at once (Ctrl/⌘-click).
 3. Click **Process Uploaded Batch** — a progress bar tracks each image.
 4. Download the **📦 results ZIP** containing annotated overlays, masks, and `FINAL_STATS.csv`.
+
+![Overview](assets/overview_example.png)
 
 The `FINAL_STATS.csv` file is the first item in the ZIP archive and contains one summary row per image:
 
@@ -80,6 +79,56 @@ Rows are ordered first by plate group/column for filenames matching the `_B01f` 
 > **Note:** Segmentation results may vary slightly between different computers due to differences in hardware, floating-point behavior, and dependency versions. Always verify outputs on your own system before drawing conclusions.
 
 ![Batch results](assets/tutorial_batch_results.png)
+
+---
+
+## Outputs and results
+
+For every processed image the app writes three files into the results folder (and into the batch ZIP):
+
+- `<image>_original.png` — the input image, saved alongside the results.
+- `<image>_features.csv` — one row per detected cell with its measured features.
+- `<image>_final_filtered.png` — a four-panel debug visualization showing the original image, all detected cells, the area-filtered set, and the final filtered result.
+
+For batches, a fourth file `FINAL_STATS.csv` summarizes every image on one row.
+
+### Per-cell features (`<image>_features.csv`)
+
+Each row corresponds to a single cell that passed all filters.
+
+| Column | Description |
+|---|---|
+| `cell_id` | Unique numeric label assigned to the cell. |
+| `area` | Cell area in pixels. |
+| `perimeter` | Cell perimeter in pixels. |
+| `mean_intensity` | Average pixel intensity inside the cell region (higher = brighter / over-stained). |
+
+![Per-cell features CSV example](assets/features.png)
+
+### Batch summary (`FINAL_STATS.csv`)
+
+`FINAL_STATS.csv` is the first file in the batch ZIP and contains one summary row per image:
+
+| Column | Description |
+|---|---|
+| `image_name` | Name of the input image file. |
+| `num_cells` | Total number of cells that passed all filters. |
+| `mean_area` | Average cell area among detected cells (pixels). |
+| `mean_perimeter` | Average cell perimeter among detected cells (pixels). |
+| `plate_coverage_percent` | Estimated percentage of the plate/culture area covered by cells. |
+
+![Final stats CSV example](assets/final_stats.png)
+
+### Debug visualization (`<image>_final_filtered.png`)
+
+The debug image lets you verify every filtering step at a glance:
+
+1. **Original Image** — the uploaded TRAP-stained plate.
+2. **Final Filtered** — the cells that remain after area and intensity filtering (with numeric labels if *Numbered Labels* is enabled).
+3. **All Cells** — every cell detected by SAM before any filtering.
+4. **Area Filtered** — cells that remain after removing fragments smaller than *Min Area* (and an internal perimeter check).
+
+![Debug visualization example](assets/31_final_filtered.png)
 
 ---
 
